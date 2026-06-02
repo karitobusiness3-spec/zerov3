@@ -1,4 +1,4 @@
--- Hoopz Core Matrix Console (Integrated Nixus Hub Edition)
+-- Hoopz Core Matrix Console (2026 Adaptive Edition)
 
 if not game:IsLoaded() then game.Loaded:Wait() end
 
@@ -37,33 +37,23 @@ local jumping = false
 local trackingTarget = false
 local guardPlayer = nil
 
--- Scrape authorization security keys from memory connections
-for _, conn in ipairs(getconnections(UserInputService.TouchTapInWorld)) do
-	for idx, upv in pairs(getupvalues(conn.Function)) do
-		if type(upv) == "table" and rawget(upv, 1) then
-			_G.method = upv
-		elseif idx == 10 then
-			_G.key = upv
-		end
-	end
+-- Safe character root utility to prevent R6/R15 red-lining crashes
+local function getRoot(character)
+	if not character then return nil end
+	return character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso")
 end
-
--- Intercept runtime network security handshakes
-ShootingEvent.OnClientEvent:Connect(function(newKey)
-	_G.key = newKey
-end)
 
 --// MASTER GEOMETRY & TRAJECTORY MATRIX
 
 local function getCourtGoal()
 	local shortestDistance, closestGoal = 9e9, nil
-	local torso = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Torso")
-	if not torso then return nil, nil end
+	local root = getRoot(LocalPlayer.Character)
+	if not root then return nil, nil end
 	
 	local courts = workspace:FindFirstChild("Courts") or workspace
 	for _, obj in ipairs(courts:GetDescendants()) do
 		if obj.Name == "Swish" and (obj:IsA("Sound") or obj.Parent:FindFirstChildOfClass("TouchTransmitter")) then
-			local mag = (torso.Position - obj.Parent.Position).Magnitude
+			local mag = (root.Position - obj.Parent.Position).Magnitude
 			if shortestDistance > mag then
 				shortestDistance = mag
 				closestGoal = obj.Parent
@@ -137,34 +127,19 @@ local function getPowerSetting(dist)
 	return nil
 end
 
-local function encodeTrajectoryTable(origin, direction)
-	local matrixArgs = {
-		X1 = origin.X, Y1 = origin.Y, Z1 = origin.Z,
-		X2 = direction.X, Y2 = direction.Y, Z2 = direction.Z
-	}
-	if _G.method then
-		return {
-			matrixArgs[_G.method[1]], matrixArgs[_G.method[2]],
-			matrixArgs[_G.method[3]], matrixArgs[_G.method[4]],
-			matrixArgs[_G.method[5]], matrixArgs[_G.method[6]]
-		}
-	end
-	return {direction.X, direction.Y, direction.Z, direction.X, direction.Y, direction.Z}
-end
-
 --// AUXILIARY UTILITY PATTERNS
 
 local function getNearestCarrier()
 	local targetDist = 9e9
 	local chosenOne = nil
-	local torso = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Torso")
-	if not torso then return nil end
+	local root = getRoot(LocalPlayer.Character)
+	if not root then return nil end
 	
 	for _, p in ipairs(Players:GetPlayers()) do
 		if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Basketball") then
-			local targetTorso = p.Character:FindFirstChild("Torso")
-			if targetTorso then
-				local magnitude = (torso.Position - targetTorso.Position).Magnitude
+			local targetRoot = getRoot(p.Character)
+			if targetRoot then
+				local magnitude = (root.Position - targetRoot.Position).Magnitude
 				if magnitude < 50 and targetDist > magnitude then
 					targetDist = magnitude
 					chosenOne = p
@@ -179,21 +154,21 @@ local function runShootCalculation()
 	local distance, goal = getCourtGoal()
 	local char = LocalPlayer.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local root = getRoot(char)
 	
-	if distance and goal and char and hum and char:FindFirstChild("Basketball") then
+	if distance and goal and char and hum and root and char:FindFirstChild("Basketball") then
 		local targetArc = calculateArcOffset(distance)
-		local originPos = char.Torso.Position
-		local lookDirection = ((goal.Position + Vector3.new(0, targetArc, 0)) - char.HumanoidRootPart.Position + hum.MoveDirection).Unit
+		local originPos = root.Position
+		local lookDirection = ((goal.Position + Vector3.new(0, targetArc, 0)) - root.Position + hum.MoveDirection).Unit
 		
-		local completePayload = encodeTrajectoryTable(originPos, lookDirection)
+		-- Streamlined 2026 network structure fallback
 		local currentPower = LocalPlayer:FindFirstChild("Power") and LocalPlayer.Power.Value or 40
-		
-		ShootingEvent:FireServer(char.Basketball, currentPower, completePayload, _G.key)
+		ShootingEvent:FireServer(char.Basketball, currentPower, {originPos.X, originPos.Y, originPos.Z, lookDirection.X, lookDirection.Y, lookDirection.Z})
 	end
 end
 
 local function executeJumpShotHook()
-	if aimbotActive and LocalPlayer.Character and hasBall and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+	if aimbotActive and LocalPlayer.Character and hasBall and getRoot(LocalPlayer.Character) then
 		jumping = true
 		task.wait(0.325)
 		runShootCalculation()
@@ -376,7 +351,6 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		guardPlayer = getNearestCarrier()
 		trackingTarget = not trackingTarget
 	elseif input.KeyCode == Enum.KeyCode.X then
-		-- Manual Shot Snap Override integration from previous script
 		local currentDistance, currentGoal = getCourtGoal()
 		local head = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head")
 		if currentGoal and head and CursorButton then
@@ -408,11 +382,11 @@ end
 bindCharacterSystems(LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait())
 _G.charAdded = LocalPlayer.CharacterAdded:Connect(bindCharacterSystems)
 
---// RUNTIME RUNSERVICE ENGINE PIPELINE
+--// RUNTIME ENGINE PIPELINE
 
 RunService.Stepped:Connect(function()
 	local char = LocalPlayer.Character
-	local root = char and char:FindFirstChild("HumanoidRootPart")
+	local root = getRoot(char)
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
 	if not root or not hum then return end
 	
@@ -452,15 +426,15 @@ RunService.Stepped:Connect(function()
 	
 	-- 4. AutoGuard Track Intercept Mechanics
 	if autoGuardActive and trackingTarget and guardPlayer and guardPlayer.Character and guardPlayer.Character:FindFirstChild("Basketball") then
-		local carrierTorso = guardPlayer.Character:FindFirstChild("Torso")
+		local carrierRoot = getRoot(guardPlayer.Character)
 		local ballTool = guardPlayer.Character:FindFirstChild("Basketball")
 		local ballPart = ballTool and ballTool:FindFirstChildOfClass("Part")
 		
-		if carrierTorso and ballPart then
-			local destination = ballPart.Position + carrierTorso.CFrame.LookVector + (guardPlayer.Character:FindFirstChildOfClass("Humanoid").MoveDirection * 2) + (root.Velocity.Unit * 3)
+		if carrierRoot and ballPart then
+			local destination = ballPart.Position + carrierRoot.CFrame.LookVector + (guardPlayer.Character:FindFirstChildOfClass("Humanoid").MoveDirection * 2) + (root.Velocity.Unit * 3)
 			hum:MoveTo(destination)
 			
-			if carrierTorso.Position.Y > 4 then
+			if carrierRoot.Position.Y > 4 then
 				hum.Jump = true
 			end
 		end
@@ -469,21 +443,21 @@ RunService.Stepped:Connect(function()
 	-- 5. Silent Pocket Intercept Reach Loop
 	if reachActive then
 		for _, player in ipairs(Players:GetPlayers()) do
-			if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Torso") then
+			if player ~= LocalPlayer and player.Character then
 				local targetChar = player.Character
-				local targetTorso = targetChar.Torso
-				local localTorso = char:FindFirstChild("Torso")
+				local targetRoot = getRoot(targetChar)
+				local localRoot = getRoot(char)
 				
-				if localTorso and (localTorso.Position - targetTorso.Position).Magnitude < 8 then
+				if localRoot and targetRoot and (localRoot.Position - targetRoot.Position).Magnitude < 8 then
 					for _, item in ipairs(targetChar:GetChildren()) do
 						if item:IsA("Tool") and item:FindFirstChildOfClass("Part") then
-							firetouchinterest(localTorso, item:FindFirstChildOfClass("Part"), 0)
+							firetouchinterest(localRoot, item:FindFirstChildOfClass("Part"), 0)
 							task.wait()
-							firetouchinterest(localTorso, item:FindFirstChildOfClass("Part"), 1)
+							firetouchinterest(localRoot, item:FindFirstChildOfClass("Part"), 1)
 						elseif item:IsA("BasePart") and string.find(item.Name:lower(), "ball") then
-							firetouchinterest(localTorso, item, 0)
+							firetouchinterest(localRoot, item, 0)
 							task.wait()
-							firetouchinterest(localTorso, item, 1)
+							firetouchinterest(localRoot, item, 1)
 						end
 					end
 				end
