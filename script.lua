@@ -1,4 +1,6 @@
--- Hoopz Core Matrix Console (2026 Adaptive Edition)
+-- Hoopz Diagnostic Control Matrix (2026 Debug Edition)
+
+print("[-] Nixus Debug Matrix: Initializing...")
 
 if not game:IsLoaded() then game.Loaded:Wait() end
 
@@ -15,10 +17,21 @@ end
 
 local Camera = workspace.CurrentCamera
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-local ShootingEvent = ReplicatedStorage:WaitForChild("shootingEvent")
-local CursorButton = PlayerGui:WaitForChild("PowerUI", 5) and PlayerGui.PowerUI:FindFirstChild("CursorButton")
 
--- Automatically correct court parent hierarchies
+-- Debug validation for remote event location
+local ShootingEvent = ReplicatedStorage:FindFirstChild("shootingEvent")
+if not ShootingEvent then
+	warn("[!] Nixus Error: 'shootingEvent' remote event could not be found in ReplicatedStorage. The game may have changed its remote networking system.")
+else
+	print("[+] Nixus Hub: Connected to network channel 'shootingEvent'")
+end
+
+local CursorButton = PlayerGui:WaitForChild("PowerUI", 5) and PlayerGui.PowerUI:FindFirstChild("CursorButton")
+if not CursorButton then
+	warn("[!] Nixus Warning: UI button element 'CursorButton' missing. Manual snap shot override (X key) may fail.")
+end
+
+-- Fix environment validation
 if workspace:FindFirstChild("PracticeArea") then
 	pcall(function() workspace.PracticeArea.Parent = workspace:FindFirstChild("Courts") or workspace end)
 end
@@ -37,7 +50,6 @@ local jumping = false
 local trackingTarget = false
 local guardPlayer = nil
 
--- Safe character root utility to prevent R6/R15 red-lining crashes
 local function getRoot(character)
 	if not character then return nil end
 	return character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso")
@@ -51,12 +63,18 @@ local function getCourtGoal()
 	if not root then return nil, nil end
 	
 	local courts = workspace:FindFirstChild("Courts") or workspace
+	local foundGoals = 0
+	
 	for _, obj in ipairs(courts:GetDescendants()) do
-		if obj.Name == "Swish" and (obj:IsA("Sound") or obj.Parent:FindFirstChildOfClass("TouchTransmitter")) then
-			local mag = (root.Position - obj.Parent.Position).Magnitude
-			if shortestDistance > mag then
-				shortestDistance = mag
-				closestGoal = obj.Parent
+		if obj.Name == "Swish" then
+			foundGoals = foundGoals + 1
+			local parentPart = obj.Parent:IsA("BasePart") and obj.Parent
+			if parentPart then
+				local mag = (root.Position - parentPart.Position).Magnitude
+				if shortestDistance > mag then
+					shortestDistance = mag
+					closestGoal = parentPart
+				end
 			end
 		end
 	end
@@ -127,8 +145,6 @@ local function getPowerSetting(dist)
 	return nil
 end
 
---// AUXILIARY UTILITY PATTERNS
-
 local function getNearestCarrier()
 	local targetDist = 9e9
 	local chosenOne = nil
@@ -156,19 +172,28 @@ local function runShootCalculation()
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
 	local root = getRoot(char)
 	
+	if not distance or not goal then
+		print("[!] Shot Evaluation Stopped: Goal hierarchy target not mapped.")
+		return
+	end
+	
 	if distance and goal and char and hum and root and char:FindFirstChild("Basketball") then
 		local targetArc = calculateArcOffset(distance)
 		local originPos = root.Position
 		local lookDirection = ((goal.Position + Vector3.new(0, targetArc, 0)) - root.Position + hum.MoveDirection).Unit
 		
-		-- Streamlined 2026 network structure fallback
 		local currentPower = LocalPlayer:FindFirstChild("Power") and LocalPlayer.Power.Value or 40
-		ShootingEvent:FireServer(char.Basketball, currentPower, {originPos.X, originPos.Y, originPos.Z, lookDirection.X, lookDirection.Y, lookDirection.Z})
+		
+		if ShootingEvent then
+			print(string.format("[+] Network Transmission Sent -> Dist: %d, Arc Offset: %d, Power Vector Target: %d", distance, targetArc, currentPower))
+			ShootingEvent:FireServer(char.Basketball, currentPower, {originPos.X, originPos.Y, originPos.Z, lookDirection.X, lookDirection.Y, lookDirection.Z})
+		end
 	end
 end
 
 local function executeJumpShotHook()
-	if aimbotActive and LocalPlayer.Character and hasBall and getRoot(LocalPlayer.Character) then
+	if aimbotActive and hasBall then
+		print("[+] Leap State Intercepted: Executing automated shot alignment...")
 		jumping = true
 		task.wait(0.325)
 		runShootCalculation()
@@ -180,7 +205,7 @@ end
 --// CONSTRUCT CONTROL MATRIX UI
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "NixusMasterGui"
+ScreenGui.Name = "NixusDiagnosticGui"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.Parent = PlayerGui
@@ -202,7 +227,7 @@ UICorner.Parent = MainFrame
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, 0, 0, 40)
 Title.BackgroundTransparency = 1
-Title.Text = "Nixus Basketball Controller"
+Title.Text = "Nixus Diagnostic Controller"
 Title.TextColor3 = Color3.fromRGB(180, 100, 255)
 Title.TextSize = 16
 Title.Font = Enum.Font.SourceSansBold
@@ -305,7 +330,7 @@ ReachBtn.BackgroundColor3 = Color3.fromRGB(65, 35, 35)
 local GuardBtn = createButton("GuardBtn", "Auto Defend Guard: OFF", 3)
 GuardBtn.BackgroundColor3 = Color3.fromRGB(65, 35, 35)
 
-local StatusLabel = createButton("StatusLabel", "State: Neutral", 10)
+local StatusLabel = createButton("StatusLabel", "State: Testing Framework", 10)
 StatusLabel.BackgroundColor3 = Color3.fromRGB(30, 25, 40)
 StatusLabel.AutoButtonColor = false
 
@@ -315,12 +340,14 @@ createSlider("WSSlider", "Speed Modulation", 16, 45, customSpeed, 4, function(va
 
 AimBtn.MouseButton1Click:Connect(function()
 	aimbotActive = not aimbotActive
+	print("[-] Config Shift: Aimbot Toggled to -> " .. tostring(aimbotActive))
 	AimBtn.Text = aimbotActive and "Trajectory Aimbot: ON" or "Trajectory Aimbot: OFF"
 	AimBtn.BackgroundColor3 = aimbotActive and Color3.fromRGB(35, 65, 35) or Color3.fromRGB(65, 35, 35)
 end)
 
 ReachBtn.MouseButton1Click:Connect(function()
 	reachActive = not reachActive
+	print("[-] Config Shift: Reach Toggled to -> " .. tostring(reachActive))
 	ReachBtn.Text = reachActive and "Silent Pocket Reach: ON" or "Silent Pocket Reach: OFF"
 	ReachBtn.BackgroundColor3 = reachActive and Color3.fromRGB(35, 65, 35) or Color3.fromRGB(65, 35, 35)
 end)
@@ -329,15 +356,7 @@ GuardBtn.MouseButton1Click:Connect(function()
 	autoGuardActive = not autoGuardActive
 	GuardBtn.Text = autoGuardActive and "Auto Defend Guard: ON" or "Auto Defend Guard: OFF"
 	GuardBtn.BackgroundColor3 = autoGuardActive and Color3.fromRGB(35, 65, 35) or Color3.fromRGB(65, 35, 35)
-	if autoGuardActive then
-		game:GetService("StarterGui"):SetCore("SendNotification", {
-			Title = "Guard System Enabled",
-			Text = "Press [U] to tether directly to the active ball runner.",
-			Duration = 4
-		})
-	else
-		trackingTarget = false
-	end
+	if not autoGuardActive then trackingTarget = false end
 end)
 
 --// EVENT CORE HANDLING
@@ -350,39 +369,50 @@ UserInputService.InputBegan:Connect(function(input, processed)
 	elseif input.KeyCode == Enum.KeyCode.U and autoGuardActive then
 		guardPlayer = getNearestCarrier()
 		trackingTarget = not trackingTarget
+		print("[-] Target Retention Matrix Status: " .. tostring(trackingTarget))
 	elseif input.KeyCode == Enum.KeyCode.X then
 		local currentDistance, currentGoal = getCourtGoal()
 		local head = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head")
 		if currentGoal and head and CursorButton then
+			print("[+] Triggering Keybind Snap Target: " .. currentGoal:GetFullName())
 			local oldCFrame = Camera.CFrame
 			LocalPlayer.DevEnableMouseLock = false
 			Camera.CFrame = CFrame.lookAt(head.Position, currentGoal.Position)
 			pcall(function() firesignal(CursorButton.MouseButton1Click) end)
 			Camera.CFrame = oldCFrame
 			LocalPlayer.DevEnableMouseLock = true
+		else
+			print("[!] Manual Keybind Snap Cancelled: Missing requirements.")
 		end
 	end
 end)
 
--- Manage Character Instance Transitions safely
 local function bindCharacterSystems(char)
 	if not char then return end
 	local hum = char:WaitForChild("Humanoid", 10)
 	if hum then
 		_G.input = hum.Jumping:Connect(executeJumpShotHook)
+		print("[+] Hooks Bound: Jump listener connected to runtime frame.")
 	end
+	
 	_G.added = char.ChildAdded:Connect(function(child)
-		if child.Name == "Basketball" then hasBall = true end
+		if child.Name == "Basketball" then 
+			hasBall = true 
+			print("[+] Inventory Matrix: Ball item registered.")
+		end
 	end)
 	_G.removed = char.ChildRemoved:Connect(function(child)
-		if child.Name == "Basketball" then hasBall = false end
+		if child.Name == "Basketball" then 
+			hasBall = false 
+			print("[-] Inventory Matrix: Ball item dropped.")
+		end
 	end)
 end
 
-bindCharacterSystems(LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait())
+if LocalPlayer.Character then bindCharacterSystems(LocalPlayer.Character) end
 _G.charAdded = LocalPlayer.CharacterAdded:Connect(bindCharacterSystems)
 
---// RUNTIME ENGINE PIPELINE
+--// RUNTIME RUNSERVICE ENGINE PIPELINE
 
 RunService.Stepped:Connect(function()
 	local char = LocalPlayer.Character
@@ -417,10 +447,10 @@ RunService.Stepped:Connect(function()
 	
 	-- 3. Dynamic Console Status Monitoring
 	if hasBall then
-		StatusLabel.Text = "State: Possession (Aim Primed)"
+		StatusLabel.Text = "State: Ball Retained"
 		StatusLabel.TextColor3 = Color3.fromRGB(0, 255, 120)
 	else
-		StatusLabel.Text = distance and ("Hoop Distance: " .. math.floor(distance) .. " studs") or "State: Scanning..."
+		StatusLabel.Text = distance and ("Closest Hoop: " .. math.floor(distance) .. " studs") or "Scanning Grid..."
 		StatusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
 	end
 	
@@ -451,13 +481,17 @@ RunService.Stepped:Connect(function()
 				if localRoot and targetRoot and (localRoot.Position - targetRoot.Position).Magnitude < 8 then
 					for _, item in ipairs(targetChar:GetChildren()) do
 						if item:IsA("Tool") and item:FindFirstChildOfClass("Part") then
-							firetouchinterest(localRoot, item:FindFirstChildOfClass("Part"), 0)
-							task.wait()
-							firetouchinterest(localRoot, item:FindFirstChildOfClass("Part"), 1)
+							pcall(function()
+								firetouchinterest(localRoot, item:FindFirstChildOfClass("Part"), 0)
+								task.wait()
+								firetouchinterest(localRoot, item:FindFirstChildOfClass("Part"), 1)
+							end)
 						elseif item:IsA("BasePart") and string.find(item.Name:lower(), "ball") then
-							firetouchinterest(localRoot, item, 0)
-							task.wait()
-							firetouchinterest(localRoot, item, 1)
+							pcall(function()
+								firetouchinterest(localRoot, item, 0)
+								task.wait()
+								firetouchinterest(localRoot, item, 1)
+							end)
 						end
 					end
 				end
@@ -465,3 +499,5 @@ RunService.Stepped:Connect(function()
 		end
 	end
 end)
+
+print("[+] Nixus Debug Matrix: Loaded successfully. Menu Key is [RightControl].")
