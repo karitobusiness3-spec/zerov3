@@ -1,9 +1,8 @@
--- Complete Lag-Free Input-Based Master Script for Hoopz
+-- Hoopz Definite Auto-Green Master Script (Lag-Free & Adaptive Power)
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local VirtualInputManager = game:GetService("VirtualInputManager")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
@@ -12,7 +11,6 @@ local uiVisible = true
 local uiToggleKey = Enum.KeyCode.RightControl
 
 local autoShootActive = false
-local powerDelay = 0.35 -- Adjust this (in seconds) to find your perfect green release point
 local magnetActive = false
 local magnetRange = 30
 local customSpeed = 16
@@ -79,7 +77,7 @@ ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 -- Main Frame
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 280, 0, 420)
+MainFrame.Size = UDim2.new(0, 280, 0, 360)
 MainFrame.Position = UDim2.new(0.05, 0, 0.15, 0)
 MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25) 
 MainFrame.BorderSizePixel = 0
@@ -96,7 +94,7 @@ UICorner.Parent = MainFrame
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, 0, 0, 40)
 Title.BackgroundTransparency = 1
-Title.Text = "Hoopz Elite Console"
+Title.Text = "Hoopz Absolute Auto-Green"
 Title.TextColor3 = Color3.fromRGB(255, 90, 0) 
 Title.TextSize = 16
 Title.Font = Enum.Font.SourceSansBold
@@ -107,7 +105,7 @@ local Scroll = Instance.new("ScrollingFrame")
 Scroll.Size = UDim2.new(1, -20, 1, -55)
 Scroll.Position = UDim2.new(0, 10, 0, 45)
 Scroll.BackgroundTransparency = 1
-Scroll.CanvasSize = UDim2.new(0, 0, 0, 550)
+Scroll.CanvasSize = UDim2.new(0, 0, 0, 450)
 Scroll.ScrollBarThickness = 4
 Scroll.Parent = MainFrame
 
@@ -209,13 +207,7 @@ local function createSlider(name, labelText, min, max, default, order, callback)
 			local percent = math.clamp((mouseX - barAbsolutePos) / barAbsoluteSize, 0, 1)
 			
 			knob.Position = UDim2.new(percent, 0, 0.5, 0)
-			local value = min + (percent * (max - min))
-			-- Handle decimal visualization specifically for power delays
-			if min < 1 then
-				value = math.floor(value * 100) / 100
-			else
-				value = math.floor(value)
-			end
+			local value = math.floor(min + (percent * (max - min)))
 			lbl.Text = labelText .. ": " .. value
 			callback(value)
 		end
@@ -223,22 +215,18 @@ local function createSlider(name, labelText, min, max, default, order, callback)
 end
 
 -- Render Control Toggles
-local ShootBtn = createButton("ShootBtn", "Auto-Click Release on Jump: OFF", 1)
+local ShootBtn = createButton("ShootBtn", "Instant Auto-Green (Jump): OFF", 1)
 ShootBtn.BackgroundColor3 = Color3.fromRGB(60, 30, 30)
 
 local MagBtn = createButton("MagBtn", "Steal Magnet (Mag): OFF", 2)
 MagBtn.BackgroundColor3 = Color3.fromRGB(60, 30, 30)
 
 -- Configure Sliders
-createSlider("PowerSlider", "Shot Release Delay (Power)", 0.1, 1.0, powerDelay, 3, function(val)
-	powerDelay = val
-end)
-
-createSlider("SpeedSlider", "Player Speed Boost", 16, 120, customSpeed, 4, function(val)
+createSlider("SpeedSlider", "Player Speed Boost", 16, 120, customSpeed, 3, function(val)
 	customSpeed = val
 end)
 
-createSlider("MagRadiusSlider", "Intercept Distance (Mag)", 10, 120, magnetRange, 5, function(val)
+createSlider("MagRadiusSlider", "Intercept Distance (Mag)", 10, 120, magnetRange, 4, function(val)
 	magnetRange = val
 end)
 
@@ -277,7 +265,7 @@ end)
 --// Activation Input Listeners
 ShootBtn.MouseButton1Click:Connect(function()
 	autoShootActive = not autoShootActive
-	ShootBtn.Text = autoShootActive and "Auto-Click Release on Jump: ON" or "Auto-Click Release on Jump: OFF"
+	ShootBtn.Text = autoShootActive and "Instant Auto-Green (Jump): ON" or "Instant Auto-Green (Jump): OFF"
 	ShootBtn.BackgroundColor3 = autoShootActive and Color3.fromRGB(30, 60, 30) or Color3.fromRGB(60, 30, 30)
 end)
 
@@ -298,56 +286,55 @@ end)
 -- Initialize Cache immediately on run
 refreshRimCache()
 
---// Input Timing Loop For Automated Jumps
-task.spawn(function()
-	while true do
-		task.wait(0.05)
-		local character = LocalPlayer.Character
-		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-		
-		if humanoid and autoShootActive then
-			local jumpConnection
-			jumpConnection = humanoid.Jumping:Connect(function(isActive)
-				if isActive and autoShootActive then
-					local ball = findHoopzBall()
-					if ball then
-						-- Auto-Click Native Down Press
-						VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-						
-						-- Hold until the exact optimized timeline selection match
-						task.wait(powerDelay)
-						
-						-- Auto-Click Native Release
-						VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
-					end
-				end
-				jumpConnection:Disconnect()
-			end)
-		end
-	end
-end)
-
---// Continuous Background Adjustments Loop (Lag-Free)
+--// Main Engine Loop
 RunService.RenderStepped:Connect(function()
 	local character = LocalPlayer.Character
 	local hrp = character and character:FindFirstChild("HumanoidRootPart")
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	if not hrp or not humanoid then return end
 
-	-- Handle custom walkspeed safely
+	-- Apply walking speed adjustments smoothly
 	if humanoid.WalkSpeed ~= customSpeed then
 		humanoid.WalkSpeed = customSpeed
 	end
 
-	-- Loose Intercept Magnet (Mag) Execution
-	if magnetActive then
-		local ball = findHoopzBall()
-		if ball then
-			local dist = (hrp.Position - ball.Position).Magnitude
-			if dist <= magnetRange and ball.AssemblyLinearVelocity.Magnitude > 1 then
-				local interceptPoint = hrp.Position + (hrp.CFrame.LookVector * 1.5)
-				ball.AssemblyLinearVelocity = (interceptPoint - ball.Position).Unit * 45
+	local ball = findHoopzBall()
+
+	-- Dynamic Shooting Engine
+	if autoShootActive and humanoid.Jump and ball then
+		local rimPos = findClosestRim(hrp.Position)
+		
+		-- Perfect high-arc swish vector target calculation 
+		local targetSpot = rimPos + Vector3.new(0, 2.1, 0)
+		local distanceToHoop = (Vector3.new(hrp.Position.X, 0, hrp.Position.Z) - Vector3.new(targetSpot.X, 0, targetSpot.Z)).Magnitude
+		
+		if (hrp.Position - ball.Position).Magnitude <= 18 then
+			local direction = (targetSpot - ball.Position)
+			local horizontalDist = Vector3.new(direction.X, 0, direction.Z).Magnitude
+			local verticalDist = direction.Y
+			
+			local gravity = workspace.Gravity
+			
+			-- AUTOMATED POWER CALIBRATION: Scales based on court distance variables automatically
+			local horizontalVelocity = math.clamp(distanceToHoop * 1.45, 42, 85)
+			local timeInAir = horizontalDist / horizontalVelocity
+			
+			if timeInAir > 0 then
+				local verticalVelocity = (verticalDist / timeInAir) + (0.5 * gravity * timeInAir)
+				local finalVelocityVector = Vector3.new(direction.X, 0, direction.Z).Unit * horizontalVelocity + Vector3.new(0, verticalVelocity, 0)
+				
+				ball.AssemblyLinearVelocity = finalVelocityVector
+				ball.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
 			end
+		end
+	end
+
+	-- Loose Intercept Magnet (Mag) Execution
+	if magnetActive and ball then
+		local dist = (hrp.Position - ball.Position).Magnitude
+		if dist <= magnetRange and ball.AssemblyLinearVelocity.Magnitude > 1 then
+			local interceptPoint = hrp.Position + (hrp.CFrame.LookVector * 1.5)
+			ball.AssemblyLinearVelocity = (interceptPoint - ball.Position).Unit * 45
 		end
 	end
 end)
