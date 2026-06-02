@@ -1,89 +1,126 @@
--- Hoopz Definite Auto-Green Master Script (Lag-Free & Adaptive Power)
+-- Hoopz Ultimate Adaptive Auto-Green Console
+
+-- Wait for game loading parameters to stabilize
+if not game:IsLoaded() then
+	game.Loaded:Wait()
+end
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
+
+-- Fallback check to prevent execution crashes
+while not LocalPlayer or not LocalPlayer:FindFirstChild("PlayerGui") do
+	task.wait(0.5)
+	LocalPlayer = Players.LocalPlayer
+end
+
 local Camera = workspace.CurrentCamera
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Safe check for the shooting button interface from your script
+local ShootingButton = PlayerGui:WaitForChild("PowerUI", 5) and PlayerGui.PowerUI:FindFirstChild("CursorButton")
+
+-- Automatically fix court grouping structure if it's separated
+if workspace:FindFirstChild("PracticeArea") then
+	pcall(function()
+		workspace.PracticeArea.Parent = workspace:FindFirstChild("Courts") or workspace
+	end)
+end
 
 --// Settings & States
 local uiVisible = true
 local uiToggleKey = Enum.KeyCode.RightControl
 
 local autoShootActive = false
+local shootKeybind = Enum.KeyCode.X -- Your default activation key
 local magnetActive = false
 local magnetRange = 30
 local customSpeed = 16
 
--- Cache variables to prevent lag
-local cachedRims = {}
-local lastCacheTime = 0
+local isBinding = false
+local bindingTarget = "" 
 
--- Function to cache rims safely without causing frame drops
-local function refreshRimCache()
-	local now = os.clock()
-	if now - lastCacheTime < 5 and #cachedRims > 0 then return end
-	lastCacheTime = now
-	
-	table.clear(cachedRims)
-	for _, obj in ipairs(workspace:GetDescendants()) do
-		if obj:IsA("BasePart") and (obj.Name == "Rim" or obj.Name == "Ring" or obj.Name == "GoalRim") then
-			table.insert(cachedRims, obj)
-		end
-	end
-end
+--// DYNAMIC IDENTIFICATION FUNCTIONS
 
--- Fast ball locator
-local function findHoopzBall()
-	local ball = workspace:FindFirstChild("Basketball") or workspace:FindFirstChild("Ball")
-	if ball and ball:IsA("BasePart") then return ball end
-	
-	for _, player in ipairs(Players:GetPlayers()) do
-		local char = player.Character
-		if char then
-			local b = char:FindFirstChild("Basketball") or char:FindFirstChild("Ball")
-			if b and b:IsA("BasePart") then return b end
-		end
-	end
-	return nil
-end
-
--- Lag-free closest rim finder using the cache
-local function findClosestRim(myPos)
-	refreshRimCache()
-	local closestRimPosition = Vector3.new(0, 16.5, 0)
+-- 1. Identifies the closest hoop/rim dynamically based on keyword matching
+local function GetClosestGoal()
+	local closestGoal = nil
 	local shortestDistance = math.huge
 	
-	for i = 1, #cachedRims do
-		local obj = cachedRims[i]
-		if obj and obj.Parent then
-			local dist = (myPos - obj.Position).Magnitude
-			if dist < shortestDistance then
-				shortestDistance = dist
-				closestRimPosition = obj.Position
+	local character = LocalPlayer.Character
+	local rootPart = character and (character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso"))
+	if not rootPart then return nil end
+	
+	-- Look inside Courts container first, fallback to workspace if missing
+	local searchArea = workspace:FindFirstChild("Courts") or workspace
+	
+	for _, obj in ipairs(searchArea:GetDescendants()) do
+		if obj:IsA("BasePart") then
+			local nameLower = obj.Name:lower()
+			
+			-- Match by specific game targets ("Swish") or universal hoop terms
+			if obj.Name == "Swish" or nameLower:find("rim") or nameLower:find("goalhoop") then
+				local distance = (rootPart.Position - obj.Position).Magnitude
+				if distance < shortestDistance then
+					shortestDistance = distance
+					closestGoal = obj
+				end
 			end
 		end
 	end
-	return closestRimPosition
+	
+	return closestGoal
 end
 
--- Configuration Menu Assets
+-- 2. Tracks the basketball object and finds which player is handling it
+local function identifyBallAndCarrier()
+	local activeBall = nil
+	local closestCarrier = nil
+	local shortestDistance = 15 -- Max distance to count as handling the ball
+	
+	for _, obj in ipairs(workspace:GetDescendants()) do
+		if obj:IsA("BasePart") and (obj.Name:lower():find("ball") or obj.Name:lower():find("basketball")) then
+			activeBall = obj
+			break
+		end
+	end
+	
+	if activeBall then
+		for _, p in ipairs(Players:GetPlayers()) do
+			local char = p.Character
+			local hrp = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
+			if hrp then
+				local dist = (hrp.Position - activeBall.Position).Magnitude
+				if dist < shortestDistance then
+					shortestDistance = dist
+					closestCarrier = p
+				end
+			end
+		end
+	end
+	
+	return activeBall, closestCarrier
+end
+
+--// CREATE UI ELEMENTS
+
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "HoopzSupremeGui"
+ScreenGui.Name = "HoopzUltimateControlGui"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+ScreenGui.Parent = PlayerGui
 
 -- Main Frame
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 280, 0, 360)
+MainFrame.Size = UDim2.new(0, 280, 0, 400)
 MainFrame.Position = UDim2.new(0.05, 0, 0.15, 0)
-MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25) 
+MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Draggable = true
-MainFrame.ClipsDescendants = true
 MainFrame.Parent = ScreenGui
 
 local UICorner = Instance.new("UICorner")
@@ -94,16 +131,16 @@ UICorner.Parent = MainFrame
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, 0, 0, 40)
 Title.BackgroundTransparency = 1
-Title.Text = "Hoopz Absolute Auto-Green"
-Title.TextColor3 = Color3.fromRGB(255, 90, 0) 
+Title.Text = "Hoopz Master Snap Console"
+Title.TextColor3 = Color3.fromRGB(255, 90, 0)
 Title.TextSize = 16
 Title.Font = Enum.Font.SourceSansBold
 Title.Parent = MainFrame
 
 -- Scrolling Frame for Settings
 local Scroll = Instance.new("ScrollingFrame")
-Scroll.Size = UDim2.new(1, -20, 1, -55)
-Scroll.Position = UDim2.new(0, 10, 0, 45)
+Scroll.Size = UDim2.new(0.92, 0, 0, 340)
+Scroll.Position = UDim2.new(0.04, 0, 0, 45)
 Scroll.BackgroundTransparency = 1
 Scroll.CanvasSize = UDim2.new(0, 0, 0, 450)
 Scroll.ScrollBarThickness = 4
@@ -113,23 +150,6 @@ local UIListLayout = Instance.new("UIListLayout")
 UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 UIListLayout.Padding = UDim.new(0, 12)
 UIListLayout.Parent = Scroll
-
--- Expandable Dragger Handle
-local DragHandle = Instance.new("TextButton")
-DragHandle.Name = "DragHandle"
-DragHandle.Size = UDim2.new(0, 15, 0, 15)
-DragHandle.Position = UDim2.new(1, -15, 1, -15)
-DragHandle.BackgroundColor3 = Color3.fromRGB(50, 50, 55)
-DragHandle.Text = "///"
-DragHandle.TextColor3 = Color3.fromRGB(150, 150, 150)
-DragHandle.TextSize = 10
-DragHandle.Font = Enum.Font.SourceSans
-DragHandle.ZIndex = 5
-DragHandle.Parent = MainFrame
-
-local HandleCorner = Instance.new("UICorner")
-HandleCorner.CornerRadius = UDim.new(0, 4)
-HandleCorner.Parent = DragHandle
 
 -- Component Helpers
 local function createButton(name, text, order)
@@ -144,7 +164,7 @@ local function createButton(name, text, order)
 	btn.LayoutOrder = order
 	btn.AutoButtonColor = true
 	btn.Parent = Scroll
-	
+
 	local corner = Instance.new("UICorner")
 	corner.CornerRadius = UDim.new(0, 6)
 	corner.Parent = btn
@@ -175,7 +195,7 @@ local function createSlider(name, labelText, min, max, default, order, callback)
 	bar.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
 	bar.BorderSizePixel = 0
 	bar.Parent = sliderFrame
-	
+
 	local barCorner = Instance.new("UICorner")
 	barCorner.CornerRadius = UDim.new(1, 0)
 	barCorner.Parent = bar
@@ -205,7 +225,7 @@ local function createSlider(name, labelText, min, max, default, order, callback)
 			local barAbsolutePos = bar.AbsolutePosition.X
 			local barAbsoluteSize = bar.AbsoluteSize.X
 			local percent = math.clamp((mouseX - barAbsolutePos) / barAbsoluteSize, 0, 1)
-			
+
 			knob.Position = UDim2.new(percent, 0, 0.5, 0)
 			local value = math.floor(min + (percent * (max - min)))
 			lbl.Text = labelText .. ": " .. value
@@ -214,58 +234,33 @@ local function createSlider(name, labelText, min, max, default, order, callback)
 	end)
 end
 
--- Render Control Toggles
-local ShootBtn = createButton("ShootBtn", "Instant Auto-Green (Jump): OFF", 1)
+-- Render GUI control elements
+local ShootBtn = createButton("ShootBtn", "Auto-Snap Green: OFF", 1)
 ShootBtn.BackgroundColor3 = Color3.fromRGB(60, 30, 30)
 
-local MagBtn = createButton("MagBtn", "Steal Magnet (Mag): OFF", 2)
+local BindBtn = createButton("BindBtn", "Shoot Keybind: X", 2)
+
+local MagBtn = createButton("MagBtn", "Steal Magnet (Mag): OFF", 3)
 MagBtn.BackgroundColor3 = Color3.fromRGB(60, 30, 30)
 
--- Configure Sliders
-createSlider("SpeedSlider", "Player Speed Boost", 16, 120, customSpeed, 3, function(val)
+local StatusLabel = createButton("StatusLabel", "Status: Waiting for Ball...", 10)
+StatusLabel.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+StatusLabel.AutoButtonColor = false
+
+-- Sliders configuration
+createSlider("SpeedSlider", "Dribble Walkspeed", 16, 120, customSpeed, 4, function(val)
 	customSpeed = val
 end)
 
-createSlider("MagRadiusSlider", "Intercept Distance (Mag)", 10, 120, magnetRange, 4, function(val)
+createSlider("MagRadiusSlider", "Intercept Distance (Mag)", 10, 120, magnetRange, 5, function(val)
 	magnetRange = val
 end)
 
---// UI Resizer Integration
-local resizing = false
-local startSize, startMousePos
+--// INTERACTIVE CONTROLS CONNECTORS
 
-DragHandle.MouseButton1Down:Connect(function()
-	resizing = true
-	startSize = MainFrame.Size
-	startMousePos = UserInputService:GetMouseLocation()
-	MainFrame.Draggable = false 
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		resizing = false
-		MainFrame.Draggable = true
-	end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-	if resizing and input.UserInputType == Enum.UserInputType.MouseMovement then
-		local currentMousePos = UserInputService:GetMouseLocation()
-		local deltaX = currentMousePos.X - startMousePos.X
-		local deltaY = currentMousePos.Y - startMousePos.Y
-		
-		local newWidth = math.max(220, startSize.X.Offset + deltaX)
-		local newHeight = math.max(200, startSize.Y.Offset + deltaY)
-		
-		MainFrame.Size = UDim2.new(0, newWidth, 0, newHeight)
-		DragHandle.Position = UDim2.new(1, -15, 1, -15)
-	end
-end)
-
---// Activation Input Listeners
 ShootBtn.MouseButton1Click:Connect(function()
 	autoShootActive = not autoShootActive
-	ShootBtn.Text = autoShootActive and "Instant Auto-Green (Jump): ON" or "Instant Auto-Green (Jump): OFF"
+	ShootBtn.Text = autoShootActive and "Auto-Snap Green: ON" or "Auto-Snap Green: OFF"
 	ShootBtn.BackgroundColor3 = autoShootActive and Color3.fromRGB(30, 60, 30) or Color3.fromRGB(60, 30, 30)
 end)
 
@@ -275,61 +270,88 @@ MagBtn.MouseButton1Click:Connect(function()
 	MagBtn.BackgroundColor3 = magnetActive and Color3.fromRGB(30, 60, 30) or Color3.fromRGB(60, 30, 30)
 end)
 
+BindBtn.MouseButton1Click:Connect(function()
+	isBinding = true
+	BindBtn.Text = "Press any key..."
+end)
+
+--// HANDLE KEYBOARD TRIGGERS
+
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
+
 	if input.KeyCode == uiToggleKey then
 		uiVisible = not uiVisible
 		MainFrame.Visible = uiVisible
+	elseif isBinding then
+		if input.UserInputType == Enum.UserInputType.Keyboard then
+			shootKeybind = input.KeyCode
+			BindBtn.Text = "Shoot Keybind: " .. input.KeyCode.Name
+			isBinding = false
+		end
+	else
+		-- Integrated Input Execution Loop from your script
+		if input.KeyCode == shootKeybind and autoShootActive then
+			local ball, carrier = identifyBallAndCarrier()
+			
+			if ball and carrier == LocalPlayer then
+				local Goal = GetClosestGoal()
+				local character = LocalPlayer.Character
+				local head = character and character:FindFirstChild("Head")
+				
+				if Goal and head and ShootingButton then
+					-- Execute your visual camera tracking cache snap
+					local OldCFrame = Camera.CFrame
+					LocalPlayer.DevEnableMouseLock = false
+					
+					Camera.CFrame = CFrame.lookAt(head.Position, Goal.Position)
+					
+					-- Firesignal interaction simulation layer
+					pcall(function()
+						firesignal(ShootingButton.MouseButton1Click)
+					end)
+					
+					-- Seamlessly return original coordinate views back to player
+					Camera.CFrame = OldCFrame
+					LocalPlayer.DevEnableMouseLock = true
+				end
+			end
+		end
 	end
 end)
 
--- Initialize Cache immediately on run
-refreshRimCache()
+--// BACKGROUND OPTIMIZATION LOOPS
 
---// Main Engine Loop
 RunService.RenderStepped:Connect(function()
 	local character = LocalPlayer.Character
 	local hrp = character and character:FindFirstChild("HumanoidRootPart")
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	if not hrp or not humanoid then return end
 
-	-- Apply walking speed adjustments smoothly
+	-- Continuously apply custom dribble speed adjustments cleanly
 	if humanoid.WalkSpeed ~= customSpeed then
 		humanoid.WalkSpeed = customSpeed
 	end
 
-	local ball = findHoopzBall()
-
-	-- Dynamic Shooting Engine
-	if autoShootActive and humanoid.Jump and ball then
-		local rimPos = findClosestRim(hrp.Position)
-		
-		-- Perfect high-arc swish vector target calculation 
-		local targetSpot = rimPos + Vector3.new(0, 2.1, 0)
-		local distanceToHoop = (Vector3.new(hrp.Position.X, 0, hrp.Position.Z) - Vector3.new(targetSpot.X, 0, targetSpot.Z)).Magnitude
-		
-		if (hrp.Position - ball.Position).Magnitude <= 18 then
-			local direction = (targetSpot - ball.Position)
-			local horizontalDist = Vector3.new(direction.X, 0, direction.Z).Magnitude
-			local verticalDist = direction.Y
-			
-			local gravity = workspace.Gravity
-			
-			-- AUTOMATED POWER CALIBRATION: Scales based on court distance variables automatically
-			local horizontalVelocity = math.clamp(distanceToHoop * 1.45, 42, 85)
-			local timeInAir = horizontalDist / horizontalVelocity
-			
-			if timeInAir > 0 then
-				local verticalVelocity = (verticalDist / timeInAir) + (0.5 * gravity * timeInAir)
-				local finalVelocityVector = Vector3.new(direction.X, 0, direction.Z).Unit * horizontalVelocity + Vector3.new(0, verticalVelocity, 0)
-				
-				ball.AssemblyLinearVelocity = finalVelocityVector
-				ball.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-			end
+	-- Tracker Status updates
+	local ball, carrier = identifyBallAndCarrier()
+	if ball then
+		if carrier == LocalPlayer then
+			StatusLabel.Text = "Status: You have possession"
+			StatusLabel.TextColor3 = Color3.fromRGB(0, 255, 150)
+		elseif carrier then
+			StatusLabel.Text = "Carrier: " .. carrier.Name
+			StatusLabel.TextColor3 = Color3.fromRGB(255, 200, 0)
+		else
+			StatusLabel.Text = "Status: Ball Loose"
+			StatusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
 		end
+	else
+		StatusLabel.Text = "Status: Scanning for Ball..."
+		StatusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
 	end
 
-	-- Loose Intercept Magnet (Mag) Execution
+	-- Steal Magnet Intercept Loop
 	if magnetActive and ball then
 		local dist = (hrp.Position - ball.Position).Magnitude
 		if dist <= magnetRange and ball.AssemblyLinearVelocity.Magnitude > 1 then
